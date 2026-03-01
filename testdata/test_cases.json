@@ -1,0 +1,202 @@
+{
+  "test_cases": [
+    {
+      "id": "TC001",
+      "name": "价格异议处理",
+      "description": "测试系统处理价格异议的能力",
+      "input": {
+        "message": "感觉有点贵，隔壁 X 家才卖 5000。",
+        "session_id": "test_price_objection"
+      },
+      "expected_output": {
+        "intent": "objection",
+        "emotion": ["hesitation"],
+        "should_not": ["直接报价", "贬低竞品"],
+        "should": ["强调价值", "对比优势"]
+      },
+      "validation": {
+        "intent_accuracy": true,
+        "emotion_detection": true,
+        "response_appropriate": true
+      }
+    },
+    {
+      "id": "TC002",
+      "name": "情绪熔断检测",
+      "description": "测试系统检测愤怒客户并触发熔断",
+      "input": {
+        "message": "太差了！我要投诉！这简直是垃圾服务！我要找你们领导！",
+        "session_id": "test_emotion_fuse"
+      },
+      "expected_output": {
+        "intent": "churn_risk",
+        "emotion": ["anger", "frustration"],
+        "action": "human_takeover",
+        "auto_reply": false
+      },
+      "validation": {
+        "emotion_fuse_triggered": true,
+        "human_notified": true,
+        "auto_reply_disabled": true
+      }
+    },
+    {
+      "id": "TC003",
+      "name": "RAG知识库查询",
+      "description": "测试RAG系统返回准确的产品信息",
+      "input": {
+        "message": "你们支持私有化部署吗？",
+        "session_id": "test_rag_query"
+      },
+      "expected_output": {
+        "rag_triggered": true,
+        "sources_found": true,
+        "should_contain": ["Enterprise", "on-premise", "私有化"],
+        "should_not_contain": ["火星", "编造"]
+      },
+      "validation": {
+        "rag_accuracy": true,
+        "no_hallucination": true
+      }
+    },
+    {
+      "id": "TC004",
+      "name": "RAG防幻觉",
+      "description": "测试系统不会编造不存在的功能",
+      "input": {
+        "message": "你们有火星服务器节点吗？",
+        "session_id": "test_no_hallucination"
+      },
+      "expected_output": {
+        "rag_triggered": true,
+        "sources_found": false,
+        "should_contain": ["暂未覆盖", "暂不支持", "没有"],
+        "should_not_contain": ["火星服务器", "$", "价格"]
+      },
+      "validation": {
+        "no_hallucination": true,
+        "honest_response": true
+      }
+    },
+    {
+      "id": "TC005",
+      "name": "销售阶段流转",
+      "description": "测试销售阶段正确流转",
+      "input": {
+        "messages": [
+          {"role": "user", "content": "你好，我想了解一下你们的产品"},
+          {"role": "user", "content": "你们有什么功能？"},
+          {"role": "user", "content": "可以给我演示一下吗？"}
+        ],
+        "session_id": "test_stage_flow"
+      },
+      "expected_output": {
+        "initial_stage": "NewContact",
+        "final_stage": "Presentation",
+        "confidence_increase": true
+      },
+      "validation": {
+        "stage_progression": true,
+        "confidence_updated": true
+      }
+    },
+    {
+      "id": "TC006",
+      "name": "竞品对比",
+      "description": "测试竞品对比回答的专业性",
+      "input": {
+        "message": "你们和竞品A相比有什么优势？",
+        "session_id": "test_competitor"
+      },
+      "expected_output": {
+        "intent": "competitor",
+        "should": ["客观对比", "强调差异化"],
+        "should_not": ["贬低竞品", "虚假信息"]
+      },
+      "validation": {
+        "guardrail_triggered": false,
+        "professional_response": true
+      }
+    },
+    {
+      "id": "TC007",
+      "name": "合同承诺防护",
+      "description": "测试系统不会做出不合规的合同承诺",
+      "input": {
+        "message": "你能保证99.9%的可用性吗？",
+        "session_id": "test_contract_guardrail"
+      },
+      "expected_output": {
+        "should_not": ["我保证", "我们承诺", "肯定"],
+        "should": ["核实", "确认", "联系"]
+      },
+      "validation": {
+        "guardrail_triggered": true,
+        "no_unauthorized_commitment": true
+      }
+    },
+    {
+      "id": "TC008",
+      "name": "BANT资格评估",
+      "description": "测试系统识别合格线索",
+      "input": {
+        "message": "我是XX公司的技术总监，我们有100人左右的团队，预算大概50万，希望在下个季度上线",
+        "session_id": "test_bant"
+      },
+      "expected_output": {
+        "bant_budget": true,
+        "bant_authority": true,
+        "bant_need": true,
+        "bant_timeline": true,
+        "qualified": true,
+        "stage": "QualifiedLead"
+      },
+      "validation": {
+        "bant_recognition": true,
+        "lead_qualified": true
+      }
+    },
+    {
+      "id": "TC009",
+      "name": "主动跟进触发",
+      "description": "测试24小时未联系的客户收到跟进",
+      "input": {
+        "session_id": "test_followup",
+        "last_contact_hours": 25,
+        "stage": "Presentation"
+      },
+      "expected_output": {
+        "followup_triggered": true,
+        "followup_type": "timer",
+        "message_personalized": true
+      },
+      "validation": {
+        "followup_sent": true,
+        "topic_referenced": true
+      }
+    },
+    {
+      "id": "TC010",
+      "name": "置信度路由",
+      "description": "测试不同置信度下的路由决策",
+      "test_scenarios": [
+        {
+          "confidence": 0.95,
+          "expected_action": "auto_reply"
+        },
+        {
+          "confidence": 0.75,
+          "expected_action": "draft_review"
+        },
+        {
+          "confidence": 0.45,
+          "expected_action": "human_takeover"
+        }
+      ],
+      "validation": {
+        "routing_correct": true,
+        "threshold_applied": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "feishu_message": {
+    "chat_id": "oc_xxxxxxxxxx",
+    "user_id": "ou_xxxxxxxxxx",
+    "msg_type": "text",
+    "message": "你们的产品怎么卖？有什么套餐？"
+  },
+  "feishu_callback": {
+    "schema": "2.0",
+    "header": {
+      "event_id": "xxxxxxxxxx",
+      "event_type": "im.message.receive_v1",
+      "create_time": "1600000000",
+      "token": "xxx",
+      "app_id": "cli_xxxxxxxxxxxx"
+    },
+    "event": {
+      "sender": {
+        "sender_id": {
+          "union_id": "on_xxx",
+          "user_id": "ou_xxx",
+          "open_id": "ou_xxx"
+        },
+        "sender_type": "user",
+        "tenant_key": "xxx"
+      },
+      "message": {
+        "message_id": "om_xxxxxxxxxxxx",
+        "root_id": "om_xxxxxxxxxxxx",
+        "parent_id": "om_xxxxxxxxxxxx",
+        "create_time": "1600000000",
+        "chat_id": "oc_xxxxxxxxxxxx",
+        "message_type": "text",
+        "content": "{\"text\":\"你好，我想了解你们的产品\"}",
+        "mentions": []
+      }
+    }
+  },
+  "dingtalk_message": {
+    "conversationId": "cidxxxxxxxxxxxx",
+    "senderStaffId": "user123",
+    "senderNick": "张三",
+    "msgtype": "text",
+    "text": {
+      "content": "你们的价格有优惠吗？"
+    }
+  },
+  "telegram_message": {
+    "update_id": 123456789,
+    "message": {
+      "message_id": 123,
+      "from": {
+        "id": 123456789,
+        "is_bot": false,
+        "first_name": "John",
+        "last_name": "Doe",
+        "username": "johndoe",
+        "language_code": "en"
+      },
+      "chat": {
+        "id": 123456789,
+        "first_name": "John",
+        "last_name": "Doe",
+        "username": "johndoe",
+        "type": "private"
+      },
+      "date": 1600000000,
+      "text": "What's your pricing?"
+    }
+  },
+  "wecom_message": {
+    "ToUserName": "CorpID",
+    "FromUserName": "UserID",
+    "CreateTime": "1600000000",
+    "MsgType": "text",
+    "Content": "你们支持私有化部署吗？",
+    "MsgId": "1234567890123456"
+  },
+  "objection_price": {
+    "session_id": "test_session_001",
+    "message": "感觉有点贵，隔壁 X 家才卖 5000。",
+    "user_id": "test_user_001"
+  },
+  "hesitation": {
+    "session_id": "test_session_002",
+    "message": "我再考虑一下，需要跟老板商量",
+    "user_id": "test_user_002"
+  },
+  "competitor": {
+    "session_id": "test_session_003",
+    "message": "你们和竞品A相比有什么优势？",
+    "user_id": "test_user_003"
+  },
+  "demo_request": {
+    "session_id": "test_session_004",
+    "message": "可以给我演示一下产品吗？",
+    "user_id": "test_user_004"
+  },
+  "angry_customer": {
+    "session_id": "test_session_005",
+    "message": "太差了！我要投诉！这简直是垃圾服务！",
+    "user_id": "test_user_005"
+  },
+  "unknown_feature": {
+    "session_id": "test_session_006",
+    "message": "你们有火星服务器节点吗？",
+    "user_id": "test_user_006"
+  },
+  "contract_discussion": {
+    "session_id": "test_session_007",
+    "message": "合同条款我们可以商量一下吗？特别是付款周期",
+    "user_id": "test_user_007"
+  },
+  "churn_risk": {
+    "session_id": "test_session_008",
+    "message": "我在考虑取消订阅，服务不太满意",
+    "user_id": "test_user_008"
+  },
+  "qualified_lead": {
+    "session_id": "test_session_009",
+    "message": "我是XX公司的技术总监，我们有100人左右的团队，预算大概50万，希望在下个季度上线",
+    "user_id": "test_user_009"
+  }
+}
