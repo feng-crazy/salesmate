@@ -307,6 +307,8 @@ func NewVectorStoreManager(cfg *VectorStoreConfig) (*VectorStoreManager, error) 
 	switch cfg.Type {
 	case VectorStoreMemory:
 		store = NewPersistentVectorStore(cfg.WorkspacePath, cfg.Dimension)
+	case VectorStoreQdrant:
+		store, err = NewQdrantVectorStore(cfg.Endpoint, cfg.APIKey, cfg.Collection, cfg.Dimension)
 	default:
 		store = NewPersistentVectorStore(cfg.WorkspacePath, cfg.Dimension)
 	}
