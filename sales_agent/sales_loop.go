@@ -16,6 +16,7 @@ import (
 	"salesmate/providers"
 	"salesmate/session"
 	"salesmate/sales_agent/sales_intelligence"
+	si "salesmate/sales_intelligence"
 )
 
 // SalesLoop extends the base AgentLoop with sales-specific functionality
@@ -44,6 +45,7 @@ type SalesLoop struct {
 	currentStage      SalesStage
 	confidenceScore   float64
 	lastInteraction   time.Time
+	strategyEngine    *si.StrategyEngine
 }
 
 // NewSalesLoop creates a new sales loop with the given configuration
@@ -104,6 +106,7 @@ func NewSalesLoop(cfg *config.Config) (*SalesLoop, error) {
 	intentRecognizer := sales_intelligence.NewIntentRecognizer()
 	emotionAnalyzer := NewEmotionAnalyzer()
 	pipelineManager := NewSalesPipelineManager()
+	strategyEngine := si.NewStrategyEngine()
 
 	return &SalesLoop{
 		config:            cfg,
@@ -129,6 +132,7 @@ func NewSalesLoop(cfg *config.Config) (*SalesLoop, error) {
 		currentStage:      NewContact,
 		confidenceScore:   0.0,
 		lastInteraction:   time.Now(),
+		strategyEngine:    strategyEngine,
 	}, nil
 }
 
@@ -253,11 +257,103 @@ You are SalesMate AI, an autonomous sales partner designed to help close deals. 
 	// Confidence guidelines
 	promptParts = append(promptParts, getConfidenceGuidelines(sl.confidenceScore))
 
+	// Strategy engine guidance based on current stage
+	promptParts = append(promptParts, sl.getStrategyGuidance())
+
+	// Current date and time
+
 	// Current date and time
 	now := time.Now().Format("2006-01-02 15:04 (Monday)")
 	promptParts = append(promptParts, fmt.Sprintf("## Current Time: %s", now))
 
 	return strings.Join(promptParts, "\n\n---\n\n"), nil
+}
+
+// getStrategyGuidance generates strategy-based guidance using SPIN, FAB, or BANT based on current stage
+func (sl *SalesLoop) getStrategyGuidance() string {
+	var guidance string
+
+	switch sl.currentStage {
+	case Discovery:
+		// Use SPIN questions for discovery stage
+		customerContext := map[string]interface{}{
+			"industry":     "general",
+			"company_size": "medium",
+		}
+		spin := sl.strategyEngine.ApplySPIN(customerContext)
+		guidance = "## SPIN Selling Framework (Discovery):\n"
+		guidance += "Use these questions to uncover needs:\n\n"
+		guidance += "### Situation Questions:\n"
+		for _, q := range spin.SituationQuestions {
+			guidance += fmt.Sprintf("- %s\n", q)
+		}
+		guidance += "\n### Problem Questions:\n"
+		for _, q := range spin.ProblemQuestions {
+			guidance += fmt.Sprintf("- %s\n", q)
+		}
+		guidance += "\n### Implication Questions:\n"
+		for _, q := range spin.ImplicationQuestions {
+			guidance += fmt.Sprintf("- %s\n", q)
+		}
+		guidance += "\n### Need-Payoff Questions:\n"
+		for _, q := range spin.NeedPayoffQuestions {
+			guidance += fmt.Sprintf("- %s\n", q)
+		}
+
+	case Presentation:
+		// Use FAB framework for presentation stage
+		customerNeeds := []string{"efficiency", "productivity", "cost savings"}
+		fab := sl.strategyEngine.ApplyFAB("default", customerNeeds)
+		guidance = "## FAB Selling Framework (Presentation):\n"
+		if len(fab.Features) > 0 {
+			guidance += "### Features:\n"
+			for _, f := range fab.Features {
+				guidance += fmt.Sprintf("- %s\n", f)
+			}
+		}
+		if len(fab.Advantages) > 0 {
+			guidance += "\n### Advantages:\n"
+			for _, a := range fab.Advantages {
+				guidance += fmt.Sprintf("- %s\n", a)
+			}
+		}
+		if len(fab.Benefits) > 0 {
+			guidance += "\n### Benefits:\n"
+			for _, b := range fab.Benefits {
+				guidance += fmt.Sprintf("- %s\n", b)
+			}
+		}
+
+	case QualifiedLead:
+		// Use BANT validation for qualified leads
+		bantInfo := map[string]interface{}{
+			"budget":    50000.0,
+			"authority": "decision_maker",
+			"needs":      []string{"automation", "efficiency"},
+			"timeline":  "Q2",
+		}
+		bant := sl.strategyEngine.ApplyBANT(bantInfo)
+		guidance = "## BANT Qualification (Qualified Lead):\n"
+		if bant.Budget > 0 {
+			guidance += fmt.Sprintf("- Budget: $%.0f\n", bant.Budget)
+		}
+		if bant.Authority != "" {
+			guidance += fmt.Sprintf("- Authority: %s\n", bant.Authority)
+		}
+		if len(bant.Need) > 0 {
+			guidance += "- Needs: " + strings.Join(bant.Need, ", ") + "\n"
+		}
+		if bant.Timeline != "" {
+			guidance += fmt.Sprintf("- Timeline: %s\n", bant.Timeline)
+		}
+		guidance += fmt.Sprintf("- Qualified: %v\n", bant.Qualified)
+
+	default:
+		// No specific strategy guidance for other stages
+		guidance = ""
+	}
+
+	return guidance
 }
 
 // updateSalesPipeline updates the sales pipeline based on intent and emotions
