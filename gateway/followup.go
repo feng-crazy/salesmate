@@ -2,38 +2,46 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"salesmate/channels"
 	"salesmate/sales_agent"
 	"salesmate/security"
 )
 
 // FollowUpEngine handles proactive customer follow-ups
 type FollowUpEngine struct {
-	salesLoop    *sales_agent.SalesLoop
-	safetySystem *security.SafetySystem
-	mu           sync.RWMutex
-	running      bool
-	sessions     map[string]*FollowUpSession
-	interval     time.Duration
-	maxFollowUps int
-	notifyCh     chan FollowUpEvent
+	salesLoop      *sales_agent.SalesLoop
+	safetySystem   *security.SafetySystem
+	channelManager *channels.Manager
+	config         *FollowUpConfig
+	mu             sync.RWMutex
+	running        bool
+	sessions       map[string]*FollowUpSession
+	interval       time.Duration
+	maxFollowUps   int
+	notifyCh       chan FollowUpEvent
+	dataPath       string
 }
 
 // FollowUpSession tracks follow-up state for a customer
 type FollowUpSession struct {
-	SessionID         string         `json:"sessionId"`
-	LastContact       time.Time      `json:"lastContact"`
-	LastStage         string         `json:"lastStage"`
-	FollowUpCount     int            `json:"followUpCount"`
-	NextFollowUp      time.Time      `json:"nextFollowUp"`
-	LastTopic         string         `json:"lastTopic"`
-	EngagementScore   float64        `json:"engagementScore"`
-	Qualified         bool           `json:"qualified"`
-	Priority          FollowUpPriority `json:"priority"`
+	SessionID       string           `json:"sessionId"`
+	LastContact     time.Time        `json:"lastContact"`
+	LastStage       string           `json:"lastStage"`
+	FollowUpCount   int              `json:"followUpCount"`
+	NextFollowUp    time.Time        `json:"nextFollowUp"`
+	LastTopic       string           `json:"lastTopic"`
+	EngagementScore float64          `json:"engagementScore"`
+	Qualified       bool             `json:"qualified"`
+	Priority        FollowUpPriority `json:"priority"`
+	ChannelName     string           `json:"channelName"` // Channel to use for sending
 }
 
 // FollowUpPriority indicates the urgency of follow-up
@@ -47,11 +55,11 @@ const (
 
 // FollowUpEvent represents a follow-up trigger event
 type FollowUpEvent struct {
-	SessionID   string          `json:"sessionId"`
-	Type        FollowUpType    `json:"type"`
+	SessionID   string           `json:"sessionId"`
+	Type        FollowUpType     `json:"type"`
 	Priority    FollowUpPriority `json:"priority"`
-	Message     string          `json:"message"`
-	ScheduledAt time.Time       `json:"scheduledAt"`
+	Message     string           `json:"message"`
+	ScheduledAt time.Time        `json:"scheduledAt"`
 }
 
 // FollowUpType defines the reason for follow-up
@@ -66,10 +74,10 @@ const (
 
 // FollowUpConfig holds configuration for the follow-up engine
 type FollowUpConfig struct {
-	IntervalHours    int
-	MaxFollowUps     int
+	IntervalHours     int
+	MaxFollowUps      int
 	HighPriorityHours int
-	EnableAutoSend   bool
+	EnableAutoSend    bool
 }
 
 // DefaultFollowUpConfig returns default configuration
@@ -82,21 +90,60 @@ func DefaultFollowUpConfig() *FollowUpConfig {
 	}
 }
 
-// NewFollowUpEngine creates a new follow-up engine
+// NewFollowUpEngine creates a new follow-up engine (backward compatible - no channel manager)
 func NewFollowUpEngine(salesLoop *sales_agent.SalesLoop, safetySystem *security.SafetySystem) *FollowUpEngine {
+	return NewFollowUpEngineWithChannelManager(salesLoop, safetySystem, nil)
+}
+
+// NewFollowUpEngineWithChannelManager creates a new follow-up engine with channel manager
+func NewFollowUpEngineWithChannelManager(salesLoop *sales_agent.SalesLoop, safetySystem *security.SafetySystem, channelManager *channels.Manager) *FollowUpEngine {
 	return &FollowUpEngine{
-		salesLoop:    salesLoop,
-		safetySystem: safetySystem,
-		sessions:     make(map[string]*FollowUpSession),
-		interval:     1 * time.Hour, // Check every hour
-		maxFollowUps: 5,
-		notifyCh:     make(chan FollowUpEvent, 100),
+		salesLoop:      salesLoop,
+		safetySystem:   safetySystem,
+		channelManager: channelManager,
+		sessions:       make(map[string]*FollowUpSession),
+		interval:       1 * time.Hour, // Check every hour
+		maxFollowUps:   5,
+		notifyCh:       make(chan FollowUpEvent, 100),
+		config:         DefaultFollowUpConfig(),
 	}
+}
+
+// NewFollowUpEngineWithPersistence creates a new follow-up engine with file-based persistence
+func NewFollowUpEngineWithPersistence(salesLoop *sales_agent.SalesLoop, safetySystem *security.SafetySystem, dataPath string) *FollowUpEngine {
+	return NewFollowUpEngineWithPersistenceAndChannel(salesLoop, safetySystem, nil, dataPath)
+}
+
+// NewFollowUpEngineWithPersistenceAndChannel creates a new follow-up engine with file-based persistence and channel manager
+func NewFollowUpEngineWithPersistenceAndChannel(salesLoop *sales_agent.SalesLoop, safetySystem *security.SafetySystem, channelManager *channels.Manager, dataPath string) *FollowUpEngine {
+	f := &FollowUpEngine{
+		salesLoop:      salesLoop,
+		safetySystem:   safetySystem,
+		channelManager: channelManager,
+		sessions:       make(map[string]*FollowUpSession),
+		interval:       1 * time.Hour,
+		maxFollowUps:   5,
+		notifyCh:       make(chan FollowUpEvent, 100),
+		dataPath:       dataPath,
+		config:         DefaultFollowUpConfig(),
+	}
+	f.loadSessions()
+	return f
+}
+
+// SetConfig sets the follow-up engine configuration
+func (f *FollowUpEngine) SetConfig(cfg *FollowUpConfig) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.config = cfg
 }
 
 // Start begins the follow-up engine
 func (f *FollowUpEngine) Start(ctx context.Context) {
 	f.mu.Lock()
+	if f.dataPath != "" {
+		f.loadSessions()
+	}
 	f.running = true
 	f.mu.Unlock()
 
@@ -127,7 +174,7 @@ func (f *FollowUpEngine) Stop() {
 }
 
 // UpdateSession updates follow-up state when a customer interacts
-func (f *FollowUpEngine) UpdateSession(sessionID string, stage sales_agent.SalesStage, topic string, engagement float64) {
+func (f *FollowUpEngine) UpdateSession(sessionID string, stage sales_agent.SalesStage, topic string, engagement float64, channelName string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -144,6 +191,10 @@ func (f *FollowUpEngine) UpdateSession(sessionID string, stage sales_agent.Sales
 	session.LastTopic = topic
 	session.EngagementScore = engagement
 
+	if channelName != "" {
+		session.ChannelName = channelName
+	}
+
 	// Calculate next follow-up time based on stage and engagement
 	session.NextFollowUp = f.calculateNextFollowUp(session)
 	session.FollowUpCount = 0 // Reset on interaction
@@ -153,6 +204,10 @@ func (f *FollowUpEngine) UpdateSession(sessionID string, stage sales_agent.Sales
 
 	// Check if qualified
 	session.Qualified = engagement >= 0.6 && stage != sales_agent.NewContact
+
+	if f.dataPath != "" {
+		f.saveSessions()
+	}
 }
 
 // ScheduleFollowUp schedules a follow-up for a specific time
@@ -182,6 +237,10 @@ func (f *FollowUpEngine) ScheduleFollowUp(sessionID string, followUpTime time.Ti
 		log.Printf("Warning: follow-up queue full, dropping event for %s", sessionID)
 	}
 
+	if f.dataPath != "" {
+		f.saveSessions()
+	}
+
 	return nil
 }
 
@@ -200,6 +259,35 @@ func (f *FollowUpEngine) GetPendingFollowUps() []*FollowUpSession {
 	}
 
 	return pending
+}
+
+// SendFollowUp sends a follow-up message via the stored channel
+func (f *FollowUpEngine) SendFollowUp(sessionID, message string) error {
+	f.mu.RLock()
+	session, exists := f.sessions[sessionID]
+	f.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+
+	if session.ChannelName == "" {
+		return fmt.Errorf("no channel configured for session %s", sessionID)
+	}
+
+	if f.channelManager == nil {
+		return fmt.Errorf("channel manager not available")
+	}
+
+	// Send via channel manager
+	err := f.channelManager.SendToChannel(session.ChannelName, sessionID, message)
+	if err != nil {
+		log.Printf("Error sending follow-up via channel %s for session %s: %v", session.ChannelName, sessionID, err)
+		return err
+	}
+
+	log.Printf("Follow-up sent via channel %s for session %s", session.ChannelName, sessionID)
+	return nil
 }
 
 // checkFollowUps periodically checks for follow-up opportunities
@@ -258,10 +346,27 @@ func (f *FollowUpEngine) processFollowUpEvent(ctx context.Context, event FollowU
 
 	f.mu.Unlock()
 
-	// If auto-send is enabled and safety check passes
-	// In production, this would send via the appropriate channel
-	// For now, we just log it
+	if f.dataPath != "" {
+		f.saveSessions()
+	}
+
+	// Log the message
 	log.Printf("Follow-up message for %s: %s", event.SessionID, message)
+
+	// If auto-send is enabled and channel is available, send the message
+	f.mu.RLock()
+	autoSend := f.config != nil && f.config.EnableAutoSend
+	channelMgr := f.channelManager
+	f.mu.RUnlock()
+
+	if autoSend && channelMgr != nil && session.ChannelName != "" {
+		err := channelMgr.SendToChannel(session.ChannelName, event.SessionID, message)
+		if err != nil {
+			log.Printf("Warning: failed to auto-send follow-up for %s: %v", event.SessionID, err)
+		} else {
+			log.Printf("Auto-sent follow-up for %s via %s", event.SessionID, session.ChannelName)
+		}
+	}
 }
 
 // determineFollowUpType decides the type of follow-up needed
@@ -423,10 +528,66 @@ func (f *FollowUpEngine) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"totalSessions":   len(f.sessions),
-		"highPriority":    high,
-		"mediumPriority":  medium,
-		"lowPriority":     low,
+		"totalSessions":    len(f.sessions),
+		"highPriority":     high,
+		"mediumPriority":   medium,
+		"lowPriority":      low,
 		"pendingFollowUps": len(f.GetPendingFollowUps()),
 	}
+}
+
+// saveSessions saves all sessions to a JSON file
+func (f *FollowUpEngine) saveSessions() {
+	if f.dataPath == "" {
+		return
+	}
+
+	f.mu.RLock()
+	sessions := make([]*FollowUpSession, 0, len(f.sessions))
+	for _, s := range f.sessions {
+		sessions = append(sessions, s)
+	}
+	f.mu.RUnlock()
+
+	data, err := json.MarshalIndent(sessions, "", "  ")
+	if err != nil {
+		log.Printf("Warning: failed to marshal follow-up sessions: %v", err)
+		return
+	}
+
+	filePath := filepath.Join(f.dataPath, "followup_sessions.json")
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		log.Printf("Warning: failed to save follow-up sessions: %v", err)
+	}
+}
+
+// loadSessions loads sessions from a JSON file
+func (f *FollowUpEngine) loadSessions() {
+	if f.dataPath == "" {
+		return
+	}
+
+	filePath := filepath.Join(f.dataPath, "followup_sessions.json")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return // No file yet, that's fine
+		}
+		log.Printf("Warning: failed to read follow-up sessions file: %v", err)
+		return
+	}
+
+	var sessions []*FollowUpSession
+	if err := json.Unmarshal(data, &sessions); err != nil {
+		log.Printf("Warning: failed to unmarshal follow-up sessions: %v", err)
+		return
+	}
+
+	f.mu.Lock()
+	for _, s := range sessions {
+		f.sessions[s.SessionID] = s
+	}
+	f.mu.Unlock()
+
+	log.Printf("Loaded %d follow-up sessions from disk", len(sessions))
 }
